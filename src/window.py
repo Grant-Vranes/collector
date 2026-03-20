@@ -32,20 +32,22 @@ from .lib.CsvCollector import CsvCollector
 from .lib.utils import get_gsettings
 from .lib.DroppedItem import DroppedItem, DroppedItemNotSupportedException
 
-class CollectorWindow(Adw.ApplicationWindow):
 
-    
+class CollectorWindow(Adw.ApplicationWindow):
     COLLECTOR_COLORS = ["blue", "yellow", "purple", "rose", "orange", "green"]
-    EMPTY_DROP_TEXT = _('Drop content here')
-    CAROUSEL_ICONS_PIX_SIZE=50
-    DROPS_BASE_PATH = GLib.get_user_cache_dir() + f'/drops'
+    EMPTY_DROP_TEXT = _("Drop content here")
+    CAROUSEL_ICONS_PIX_SIZE = 50
+    DROPS_BASE_PATH = GLib.get_user_cache_dir() + f"/drops"
     settings = get_gsettings()
 
     def __init__(self, window_index=0, **kwargs):
-        super().__init__(**kwargs, title='CollectorMainWindow')
-        self.DROPS_PATH = f'{self.DROPS_BASE_PATH}/{window_index}'
+        super().__init__(**kwargs, title="CollectorMainWindow")
+        self.DROPS_PATH = f"{self.DROPS_BASE_PATH}/{window_index}"
 
-        self.settings.connect('changed::keep-on-drag', self.on_keep_on_drag_changed)
+        self.settings.connect("changed::keep-on-drag", self.on_keep_on_drag_changed)
+        self.settings.connect(
+            "changed::stick-to-workspace", self.on_stick_to_workspace_changed
+        )
 
         self.WINDOW_INDEX = window_index
         self.window_color = self.get_color()
@@ -62,30 +64,45 @@ class CollectorWindow(Adw.ApplicationWindow):
         self.carousel_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         carousel_info_btn = Gtk.Button(
-            css_classes=['circular', 'opaque', 'dropped-item-info-btn'],
-            icon_name='plus-symbolic',
+            css_classes=["circular", "opaque", "dropped-item-info-btn"],
+            icon_name="plus-symbolic",
             valign=Gtk.Align.CENTER,
             halign=Gtk.Align.CENTER,
         )
 
-        carousel_info_btn.connect('clicked', self.on_carousel_info_btn)
+        carousel_info_btn.connect("clicked", self.on_carousel_info_btn)
         self.icon_carousel = Adw.Carousel(spacing=15, allow_mouse_drag=False)
         carousel_indicator = Adw.CarouselIndicatorDots(carousel=self.icon_carousel)
-        self.default_drop_icon = Gtk.Image(icon_name='go-jump-symbolic', pixel_size=self.CAROUSEL_ICONS_PIX_SIZE)
-        self.release_drop_icon = Gtk.Image(icon_name='arrow2-down-symbolic', pixel_size=self.CAROUSEL_ICONS_PIX_SIZE)
-        self.release_drag_icon = Gtk.Image(icon_name='arrow2-up-symbolic', pixel_size=self.CAROUSEL_ICONS_PIX_SIZE)
+        self.default_drop_icon = Gtk.Image(
+            icon_name="go-jump-symbolic", pixel_size=self.CAROUSEL_ICONS_PIX_SIZE
+        )
+        self.release_drop_icon = Gtk.Image(
+            icon_name="arrow2-down-symbolic", pixel_size=self.CAROUSEL_ICONS_PIX_SIZE
+        )
+        self.release_drag_icon = Gtk.Image(
+            icon_name="arrow2-up-symbolic", pixel_size=self.CAROUSEL_ICONS_PIX_SIZE
+        )
 
         carousel_overlay = Gtk.Overlay(child=self.icon_carousel)
         carousel_overlay.add_overlay(carousel_info_btn)
 
-        self.carousel_popover = Gtk.Popover(child=self.create_carousel_popover_content())
+        self.carousel_popover = Gtk.Popover(
+            child=self.create_carousel_popover_content()
+        )
         carousel_overlay.add_overlay(self.carousel_popover)
 
         self.carousel_container.append(carousel_overlay)
         self.carousel_container.append(carousel_indicator)
 
-        [self.icon_stack.add_child(w) for w in [self.carousel_container, 
-            self.default_drop_icon, self.release_drop_icon, self.release_drag_icon]]
+        [
+            self.icon_stack.add_child(w)
+            for w in [
+                self.carousel_container,
+                self.default_drop_icon,
+                self.release_drop_icon,
+                self.release_drag_icon,
+            ]
+        ]
 
         self.icon_stack.set_visible_child(self.default_drop_icon)
 
@@ -94,23 +111,30 @@ class CollectorWindow(Adw.ApplicationWindow):
         label_stack = Adw.ViewStack()
         self.drops_label = Gtk.Label(
             justify=Gtk.Justification.CENTER,
-            label=self.EMPTY_DROP_TEXT, 
-            css_classes=['dim-label']
+            label=self.EMPTY_DROP_TEXT,
+            css_classes=["dim-label"],
         )
 
         label_stack.add(self.drops_label)
 
         self.keep_items_indicator = Gtk.Revealer(
-            reveal_child=(self.settings.get_boolean('keep-on-drag')),
+            reveal_child=(self.settings.get_boolean("keep-on-drag")),
             transition_type=Gtk.RevealerTransitionType.CROSSFADE,
             child=Gtk.Button(
-                icon_name='padlock2-symbolic',
-                css_classes=['flat'],
-                sensitive=False
-            )
+                icon_name="padlock2-symbolic", css_classes=["flat"], sensitive=False
+            ),
         )
 
+        self.stick_workspace_btn = Gtk.ToggleButton(
+            icon_name="view-paged-symbolic",
+            css_classes=["flat"],
+            active=self.settings.get_boolean("stick-to-workspace"),
+            tooltip_text=_("Show on all workspaces"),
+        )
+        self.stick_workspace_btn.connect("toggled", self.on_stick_workspace_btn_toggled)
+
         content_box.append(label_stack)
+        bottom_bar.pack_end(self.stick_workspace_btn)
         bottom_bar.pack_end(self.keep_items_indicator)
 
         toolbar = Adw.ToolbarView()
@@ -139,18 +163,21 @@ class CollectorWindow(Adw.ApplicationWindow):
         self.set_resizable(False)
         self.set_content(toolbar)
 
-        self.connect('close-request', self.on_close_request)
+        self.connect("close-request", self.on_close_request)
         self.init_cache_folder()
+
+        if self.settings.get_boolean("stick-to-workspace"):
+            self.stick()
 
     def get_color(self):
         return self.COLLECTOR_COLORS[(self.WINDOW_INDEX % len(self.COLLECTOR_COLORS))]
 
     def init_cache_folder(self):
         if os.path.exists(self.DROPS_PATH):
-            logging.debug('Removing ' +  self.DROPS_PATH)
+            logging.debug("Removing " + self.DROPS_PATH)
             shutil.rmtree(self.DROPS_PATH)
 
-        logging.debug('Creting empty folder for drops at: ' +  self.DROPS_PATH)
+        logging.debug("Creting empty folder for drops at: " + self.DROPS_PATH)
 
         if not os.path.exists(self.DROPS_BASE_PATH):
             os.mkdir(self.DROPS_BASE_PATH)
@@ -161,20 +188,34 @@ class CollectorWindow(Adw.ApplicationWindow):
         val = settings.get_boolean(key)
         self.keep_items_indicator.set_reveal_child(val)
 
+    def on_stick_to_workspace_changed(self, settings, key):
+        val = settings.get_boolean(key)
+        self.stick_workspace_btn.set_active(val)
+        if val:
+            self.stick()
+        else:
+            self.unstick()
+
+    def on_stick_workspace_btn_toggled(self, btn):
+        self.settings.set_boolean("stick-to-workspace", btn.get_active())
+
     def on_drag_prepare(self, source, x, y):
         if not self.dropped_items:
             return None
 
-        uri_list = '\n'.join([f'file://{f.dropped_item.target_path}' for f in self.dropped_items])
-        return Gdk.ContentProvider.new_union([
-            Gdk.ContentProvider.new_for_bytes(
-                'text/uri-list', 
-                GLib.Bytes.new(uri_list.encode())
-            )
-        ])
+        uri_list = "\n".join(
+            [f"file://{f.dropped_item.target_path}" for f in self.dropped_items]
+        )
+        return Gdk.ContentProvider.new_union(
+            [
+                Gdk.ContentProvider.new_for_bytes(
+                    "text/uri-list", GLib.Bytes.new(uri_list.encode())
+                )
+            ]
+        )
 
     def on_drag_cancel(self, source, drag, reason):
-        logging.debug('Drag operation canceled, reason: ', reason)
+        logging.debug("Drag operation canceled, reason: ", reason)
         self.drag_aborted = True
 
     def on_drag_end(self, source, drag, move_data):
@@ -182,40 +223,41 @@ class CollectorWindow(Adw.ApplicationWindow):
 
         if not self.drag_aborted:
             if self.keep_items_indicator.get_child_visible():
-               self.remove_all_items()
+                self.remove_all_items()
 
         self.drag_aborted = False
         self.on_drop_leave(None)
 
     def on_drag_start(self, drag, move_data):
         self.is_dragging_away = True
-        
-        self.drops_label.set_label(_('Release to drop'))
+
+        self.drops_label.set_label(_("Release to drop"))
         self.icon_stack.set_visible_child(self.release_drag_icon)
 
     def on_drop_event(self, widget, value, x, y):
         if self.is_dragging_away:
             return False
-        
+
         self.drop_value(value)
         self.on_drop_leave(widget)
 
         return True
-    
+
     def on_drop_event_complete(self, carousel_items: list[CarouselItem]):
         new_image = False
         for carousel_item in carousel_items:
             dropped_item = carousel_item.dropped_item
             self.icon_carousel.remove(carousel_item.image)
-            
+
             for i, c in enumerate(self.dropped_items):
                 if c is carousel_item:
                     del self.dropped_items[i]
                     break
 
-            if self.settings.get_boolean('collect-text-to-csv') and \
-                    dropped_item.content_is_text:
-
+            if (
+                self.settings.get_boolean("collect-text-to-csv")
+                and dropped_item.content_is_text
+            ):
                 value = dropped_item.get_text_content()
                 if self.csvcollector:
                     self.csvcollector.append_text(value)
@@ -223,15 +265,17 @@ class CollectorWindow(Adw.ApplicationWindow):
                     self.csvcollector = CsvCollector(self.DROPS_PATH)
                     self.csvcollector.append_text(value)
 
-                    dropped_item = DroppedItem(self.csvcollector.get_gfile(),
+                    dropped_item = DroppedItem(
+                        self.csvcollector.get_gfile(),
                         is_clipboard=True,
                         drops_dir=self.DROPS_PATH,
-                        dynamic_size=True)
-                    
+                        dynamic_size=True,
+                    )
+
                     carousel_item = CarouselItem(
-                        item=dropped_item, 
+                        item=dropped_item,
                         image=self.get_new_image_from_dropped_item(dropped_item),
-                        index=0
+                        index=0,
                     )
 
                     self.icon_carousel.prepend(carousel_item.image)
@@ -242,8 +286,8 @@ class CollectorWindow(Adw.ApplicationWindow):
 
                 carousel_item.image = new_image
 
-                self.icon_carousel.append(new_image)          
-                self.dropped_items.append(carousel_item)  
+                self.icon_carousel.append(new_image)
+                self.dropped_items.append(carousel_item)
                 self.dropped_items[carousel_item.index] = carousel_item
 
         if new_image:
@@ -268,13 +312,13 @@ class CollectorWindow(Adw.ApplicationWindow):
         [t.start() for t in async_opts]
         [t.join() for t in async_opts]
 
-        logging.debug('Loading async items terminated')
+        logging.debug("Loading async items terminated")
         GLib.idle_add(lambda: self.on_drop_event_complete(async_items))
 
     def on_drop_enter(self, widget, x, y):
         if not self.is_dragging_away:
             self.icon_stack.set_visible_child(self.release_drop_icon)
-            self.drops_label.set_label(_('Release to collect'))
+            self.drops_label.set_label(_("Release to collect"))
 
         return Gdk.DragAction.COPY
 
@@ -292,7 +336,7 @@ class CollectorWindow(Adw.ApplicationWindow):
         ctrl_key = bool(state & Gdk.ModifierType.CONTROL_MASK)
         shift_key = bool(state & Gdk.ModifierType.SHIFT_MASK)
         alt_key = bool(state & Gdk.ModifierType.ALT_MASK)
-    
+
         if keyval == Gdk.KEY_Escape:
             if self.is_dragging_away:
                 self.drag_aborted = True
@@ -302,13 +346,15 @@ class CollectorWindow(Adw.ApplicationWindow):
                 self.close()
                 return True
         elif keyval == Gdk.KEY_d:
-            if ctrl_key and self.settings.get_boolean('keep-on-drag') == False:
+            if ctrl_key and self.settings.get_boolean("keep-on-drag") == False:
                 r = self.keep_items_indicator.get_reveal_child()
                 self.keep_items_indicator.set_reveal_child(not r)
         elif keyval == Gdk.KEY_v:
             if ctrl_key and not self.is_dragging_away:
                 cp_read_type = None
-                cp_is_text = 'text/plain' in self.clipboard.get_formats().get_mime_types()
+                cp_is_text = (
+                    "text/plain" in self.clipboard.get_formats().get_mime_types()
+                )
 
                 gtypes = self.clipboard.get_formats()
                 supported_types = [Gdk.FileList]
@@ -319,14 +365,16 @@ class CollectorWindow(Adw.ApplicationWindow):
                         break
 
                 if cp_read_type:
-                    logging.debug(f'Selected type from clipboard: {cp_read_type}')
-                    self.clipboard.read_value_async(cp_read_type, 1, None, 
-                        callback=self.clipboard_read_async_end)
+                    logging.debug(f"Selected type from clipboard: {cp_read_type}")
+                    self.clipboard.read_value_async(
+                        cp_read_type, 1, None, callback=self.clipboard_read_async_end
+                    )
                 elif cp_is_text:
-                    logging.debug('Reading text from clipboard')
-                    self.clipboard.read_text_async(None, 
-                        callback=self.clipboard_read_text_async_end)
-                
+                    logging.debug("Reading text from clipboard")
+                    self.clipboard.read_text_async(
+                        None, callback=self.clipboard_read_text_async_end
+                    )
+
                 return True
         elif keyval == Gdk.KEY_BackSpace:
             if self.dropped_items and not self.is_dragging_away:
@@ -353,11 +401,11 @@ class CollectorWindow(Adw.ApplicationWindow):
                 return True
 
         return False
-    
+
     def scroll_in_direction(self, direction):
         """
-            0: scroll left
-            1: scroll right
+        0: scroll left
+        1: scroll right
         """
 
         if not self.dropped_items:
@@ -365,8 +413,11 @@ class CollectorWindow(Adw.ApplicationWindow):
 
         i = int(self.icon_carousel.get_position())
 
-        if (i == 0 and direction == 0) or \
-            i == (len(self.dropped_items) - 1) and direction == 1:
+        if (
+            (i == 0 and direction == 0)
+            or i == (len(self.dropped_items) - 1)
+            and direction == 1
+        ):
             return
 
         i = i - 1 if direction == 0 else i + 1
@@ -375,13 +426,15 @@ class CollectorWindow(Adw.ApplicationWindow):
     def drop_value(self, value):
         dropped_items = []
         carousel_items = []
-    
+
         try:
             if isinstance(value, Gdk.FileList):
                 for file in value.get_files():
                     d = DroppedItem(file, drops_dir=self.DROPS_PATH)
                     dropped_items.append(d)
-            elif isinstance(value, str) and self.settings.get_boolean('collect-text-to-csv'):
+            elif isinstance(value, str) and self.settings.get_boolean(
+                "collect-text-to-csv"
+            ):
                 dropped_item = DroppedItem(value, drops_dir=self.DROPS_PATH)
 
                 if dropped_item.async_load:
@@ -392,8 +445,8 @@ class CollectorWindow(Adw.ApplicationWindow):
 
                         for c in self.dropped_items:
                             if c.dropped_item.is_clipboard:
-                               self.icon_carousel.scroll_to(c.image, True)
-                               break
+                                self.icon_carousel.scroll_to(c.image, True)
+                                break
 
                         self.update_tot_size_sum()
                         return
@@ -402,21 +455,23 @@ class CollectorWindow(Adw.ApplicationWindow):
                         self.csvcollector = CsvCollector(self.DROPS_PATH)
                         self.csvcollector.append_text(value)
 
-                        dropped_item = DroppedItem(self.csvcollector.get_gfile(),
+                        dropped_item = DroppedItem(
+                            self.csvcollector.get_gfile(),
                             is_clipboard=True,
                             drops_dir=self.DROPS_PATH,
-                            dynamic_size=True)
-                        
+                            dynamic_size=True,
+                        )
+
                         dropped_items.append(dropped_item)
 
             else:
                 dropped_item = DroppedItem(value, drops_dir=self.DROPS_PATH)
                 dropped_items.append(dropped_item)
         except DroppedItemNotSupportedException as e:
-            logging.warn(f'Invalid data type: {e.item}')
+            logging.warn(f"Invalid data type: {e.item}")
             return False
         except Exception as e:
-            logging.error(f'Item not supported: {e}')
+            logging.error(f"Item not supported: {e}")
             return False
 
         new_image = None
@@ -424,9 +479,7 @@ class CollectorWindow(Adw.ApplicationWindow):
             if dropped_item.async_load:
                 loader = Gtk.Spinner(spinning=True, hexpand=False, vexpand=False)
                 carousel_item = CarouselItem(
-                    item=dropped_item, 
-                    image=loader,
-                    index=len(self.dropped_items)
+                    item=dropped_item, image=loader, index=len(self.dropped_items)
                 )
 
                 carousel_items.append(carousel_item)
@@ -434,11 +487,11 @@ class CollectorWindow(Adw.ApplicationWindow):
             else:
                 new_image = self.get_new_image_from_dropped_item(dropped_item)
                 new_image.set_tooltip_text(dropped_item.display_value)
-                
+
                 carousel_item = CarouselItem(
-                    item=dropped_item, 
+                    item=dropped_item,
                     image=new_image,
-                    index=0 if dropped_item.is_clipboard else len(self.dropped_items)
+                    index=0 if dropped_item.is_clipboard else len(self.dropped_items),
                 )
 
                 carousel_items.append(carousel_item)
@@ -455,8 +508,7 @@ class CollectorWindow(Adw.ApplicationWindow):
 
         if any([d.async_load for d in dropped_items]):
             threading.Thread(
-                target=self.on_drop_event_complete_async, 
-                args=(carousel_items,)
+                target=self.on_drop_event_complete_async, args=(carousel_items,)
             ).start()
 
         self.icon_stack.set_visible_child(self.carousel_container)
@@ -477,7 +529,7 @@ class CollectorWindow(Adw.ApplicationWindow):
     def delete_focused_item(self, widget=None):
         i = int(self.icon_carousel.get_position())
         item = self.dropped_items[i]
-        
+
         if len(self.dropped_items) == 1:
             self.remove_all_items()
         else:
@@ -512,46 +564,48 @@ class CollectorWindow(Adw.ApplicationWindow):
 
         if carousel_item.dropped_item.is_clipboard:
             content = self.csvcollector.get_copied_text()
-            content_prov = Gdk.ContentProvider.new_for_value('\n'.join(content))
+            content_prov = Gdk.ContentProvider.new_for_value("\n".join(content))
         elif carousel_item.dropped_item.content_is_text:
             content = carousel_item.dropped_item.get_text_content()
             content_prov = Gdk.ContentProvider.new_for_value(content)
         else:
             gfile = carousel_item.dropped_item.gfile
-            content_prov = Gdk.ContentProvider.new_union([
-                Gdk.ContentProvider.new_for_value(gfile),
-                Gdk.ContentProvider.new_for_bytes(
-                    'text/uri-list', 
-                    GLib.Bytes.new(gfile.get_uri().encode())
-                )
-            ])
+            content_prov = Gdk.ContentProvider.new_union(
+                [
+                    Gdk.ContentProvider.new_for_value(gfile),
+                    Gdk.ContentProvider.new_for_bytes(
+                        "text/uri-list", GLib.Bytes.new(gfile.get_uri().encode())
+                    ),
+                ]
+            )
 
         self.clipboard.set_content(content_prov)
         self.carousel_popover.popdown()
 
     def update_tot_size_sum(self, loading_state=False):
         if loading_state:
-            self.drops_label.set_label('...')
+            self.drops_label.set_label("...")
             return
 
         tot_size = sum([d.dropped_item.get_size() for d in self.dropped_items])
 
         if tot_size > (1024 * 1024 * 1024):
-            tot_size = f'{round(tot_size / (1024 * 1024 * 1024), 1)} GB'
+            tot_size = f"{round(tot_size / (1024 * 1024 * 1024), 1)} GB"
         elif tot_size > (1024 * 1024):
-            tot_size = f'{round(tot_size / (1024 * 1024), 1)} MB'
+            tot_size = f"{round(tot_size / (1024 * 1024), 1)} MB"
         elif tot_size > 1014:
-            tot_size = f'{round(tot_size / (1024), 1)} KB'
+            tot_size = f"{round(tot_size / (1024), 1)} KB"
         else:
-            tot_size = f'{round(tot_size)} Byte'
+            tot_size = f"{round(tot_size)} Byte"
 
         if len(self.dropped_items) == 1:
-            self.drops_label.set_label(_('1 File | {size}').format(size=tot_size))
+            self.drops_label.set_label(_("1 File | {size}").format(size=tot_size))
         else:
-            self.drops_label.set_label(_('{files_count} Files | {size}').format(
-                files_count=len(self.dropped_items),
-                size=tot_size
-            ))
+            self.drops_label.set_label(
+                _("{files_count} Files | {size}").format(
+                    files_count=len(self.dropped_items), size=tot_size
+                )
+            )
 
     def remove_all_items(self):
         for d in self.dropped_items:
@@ -571,11 +625,11 @@ class CollectorWindow(Adw.ApplicationWindow):
 
     def on_close_request(self, widget):
         if os.path.exists(self.DROPS_PATH):
-            logging.debug('Removing ' +  self.DROPS_PATH)
+            logging.debug("Removing " + self.DROPS_PATH)
             shutil.rmtree(self.DROPS_PATH)
 
         return False
-    
+
     def get_new_image_from_dropped_item(self, dropped_item: DroppedItem):
         new_image = None
         if isinstance(dropped_item.preview_image, str):
@@ -586,25 +640,28 @@ class CollectorWindow(Adw.ApplicationWindow):
             new_image = Gtk.Image(
                 file=dropped_item.preview_image.get_path(),
                 overflow=Gtk.Overflow.HIDDEN,
-                css_classes=['dropped-item-thumb'],
+                css_classes=["dropped-item-thumb"],
                 height_request=70,
                 width_request=70,
                 pixel_size=70,
             )
 
         return new_image
-    
+
     def clipboard_read_async_end(self, source, res):
         result = self.clipboard.read_value_finish(res)
-        logging.debug(f'Received clipboard content {result}')
+        logging.debug(f"Received clipboard content {result}")
 
         drop_value = False
 
         # if isinstance(result, Gdk.Texture):
         #     drop_value = self.create_tmp_file_from_texture(result)
 
-        if isinstance(result, Gio.File) or isinstance(result, Gdk.FileList) \
-                or isinstance(result, Gdk.Texture):
+        if (
+            isinstance(result, Gio.File)
+            or isinstance(result, Gdk.FileList)
+            or isinstance(result, Gdk.Texture)
+        ):
             drop_value = result
 
         if drop_value:
@@ -621,35 +678,37 @@ class CollectorWindow(Adw.ApplicationWindow):
         self.window_color = color
 
         if self.window_color_btn:
-            self.window_color_btn.remove_css_class(f'collector-{old_color}')
-            self.window_color_btn.add_css_class(f'collector-{color}')
-        
+            self.window_color_btn.remove_css_class(f"collector-{old_color}")
+            self.window_color_btn.add_css_class(f"collector-{color}")
+
     def create_drag_source_controller(self):
         drag_source_controller = Gtk.DragSource()
-        drag_source_controller.connect('prepare', self.on_drag_prepare)
-        drag_source_controller.connect('drag-end', self.on_drag_end)
-        drag_source_controller.connect('drag-cancel', self.on_drag_cancel)
-        drag_source_controller.connect('drag-begin', self.on_drag_start)
+        drag_source_controller.connect("prepare", self.on_drag_prepare)
+        drag_source_controller.connect("drag-end", self.on_drag_end)
+        drag_source_controller.connect("drag-cancel", self.on_drag_cancel)
+        drag_source_controller.connect("drag-begin", self.on_drag_start)
 
         return drag_source_controller
 
     def create_drop_target_controller(self):
         drop_target_controller = Gtk.DropTarget(actions=Gdk.DragAction.COPY)
-        drop_target_controller.set_gtypes([Gdk.Texture, Gdk.FileList, GObject.TYPE_STRING])
-        drop_target_controller.connect('drop', self.on_drop_event)
-        drop_target_controller.connect('enter', self.on_drop_enter)
-        drop_target_controller.connect('leave', self.on_drop_leave)
+        drop_target_controller.set_gtypes(
+            [Gdk.Texture, Gdk.FileList, GObject.TYPE_STRING]
+        )
+        drop_target_controller.connect("drop", self.on_drop_event)
+        drop_target_controller.connect("enter", self.on_drop_enter)
+        drop_target_controller.connect("leave", self.on_drop_leave)
         return drop_target_controller
-    
+
     def create_event_controller_key(self):
         event_controller_key = Gtk.EventControllerKey()
-        event_controller_key.connect('key-pressed', self.on_key_pressed)
-        event_controller_key.connect('key-released', self.on_key_released)
+        event_controller_key.connect("key-pressed", self.on_key_pressed)
+        event_controller_key.connect("key-released", self.on_key_released)
         return event_controller_key
-    
+
     def create_content_box(self):
         content_box = Gtk.Box(
-            css_classes=['droparea-target'],
+            css_classes=["droparea-target"],
             margin_top=15,
             margin_end=5,
             margin_start=5,
@@ -660,42 +719,46 @@ class CollectorWindow(Adw.ApplicationWindow):
             hexpand=True,
             vexpand=True,
         )
-        
+
         return content_box
 
     def create_header_bar(self):
-        menu_obj = Gtk.Builder.new_from_resource('/it/mijorus/collector/gtk/main-menu.ui')
-        menu_button = Gtk.MenuButton(icon_name='open-menu', menu_model=menu_obj.get_object('primary_menu'))
-    
+        menu_obj = Gtk.Builder.new_from_resource(
+            "/it/mijorus/collector/gtk/main-menu.ui"
+        )
+        menu_button = Gtk.MenuButton(
+            icon_name="open-menu", menu_model=menu_obj.get_object("primary_menu")
+        )
+
         header_bar = Adw.HeaderBar(
             show_title=False,
             # decoration_layout='icon:close',
             valign=Gtk.Align.START,
-            css_classes=['flat']
+            css_classes=["flat"],
         )
-        
+
         header_bar.pack_start(menu_button)
 
         return header_bar
-    
+
     def create_bottom_bar(self):
         bottom_bar = Gtk.ActionBar()
 
         self.window_color_btn = Gtk.MenuButton(
-            icon_name='big-dot-symbolic',
-            css_classes=['flat', 'circular', f'collector-{self.window_color}']
+            icon_name="big-dot-symbolic",
+            css_classes=["flat", "circular", f"collector-{self.window_color}"],
         )
 
         color_list = Gtk.FlowBox(
             homogeneous=True,
             min_children_per_line=len(self.COLLECTOR_COLORS),
-            max_children_per_line=len(self.COLLECTOR_COLORS)
+            max_children_per_line=len(self.COLLECTOR_COLORS),
         )
 
         for c in self.COLLECTOR_COLORS:
             b = Gtk.Image(
-                icon_name='big-dot-symbolic',
-                css_classes=[f'collector-{c}', 'collector-color-image']
+                icon_name="big-dot-symbolic",
+                css_classes=[f"collector-{c}", "collector-color-image"],
             )
 
             r = Gtk.FlowBoxChild(child=b)
@@ -705,9 +768,10 @@ class CollectorWindow(Adw.ApplicationWindow):
             if c == self.window_color:
                 color_list.select_child(r)
 
-        color_list.connect('child-activated',
-                           lambda w, c: self.set_window_color(c.__color))
-        
+        color_list.connect(
+            "child-activated", lambda w, c: self.set_window_color(c.__color)
+        )
+
         color_popover = Gtk.Popover(child=color_list)
         self.window_color_btn.set_popover(color_popover)
 
@@ -715,18 +779,21 @@ class CollectorWindow(Adw.ApplicationWindow):
         return bottom_bar
 
     def create_carousel_popover_content(self):
-        carousel_popover_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        copy_btn = Gtk.Button(icon_name='copy-symbolic')
-        copy_btn.connect('clicked', self.on_copy_btn_clicked)
+        carousel_popover_content = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=10
+        )
+        copy_btn = Gtk.Button(icon_name="copy-symbolic")
+        copy_btn.connect("clicked", self.on_copy_btn_clicked)
 
-        preview_btn = Gtk.Button(icon_name='eye-open-negative-filled-symbolic')
-        preview_btn.connect('clicked', self.on_preview_btn_clicked)
+        preview_btn = Gtk.Button(icon_name="eye-open-negative-filled-symbolic")
+        preview_btn.connect("clicked", self.on_preview_btn_clicked)
 
-        delete_btn = Gtk.Button(icon_name='user-trash-symbolic', css_classes=['error'])
-        delete_btn.connect('clicked', self.delete_focused_item)
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["error"])
+        delete_btn.connect("clicked", self.delete_focused_item)
 
-        [carousel_popover_content.append(b) for b in [
-            copy_btn, preview_btn, delete_btn
-        ]]
+        [
+            carousel_popover_content.append(b)
+            for b in [copy_btn, preview_btn, delete_btn]
+        ]
 
         return carousel_popover_content
