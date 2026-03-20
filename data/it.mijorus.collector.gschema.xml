@@ -16,8 +16,5 @@
         <key name="debug-logs" type="b">
             <default>false</default>
         </key>
-        <key name="stick-to-workspace" type="b">
-            <default>false</default>
-        </key>
 	</schema>
 </schemalist>
